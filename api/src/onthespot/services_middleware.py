@@ -36,6 +36,18 @@ from .youtube_auth import is_youtube_url, youtube_ydl_options
 
 logger = get_logger("services_middleware")
 
+# librespot-python formats episode URIs as "Spotify:episode:<id>". Since it moved episode metadata to
+# Spotify's extended-metadata endpoint, that URI is answered with 404, so every podcast episode failed.
+# Use the lowercase form that track URIs already have.
+_librespot_episode_uri = EpisodeId.to_spotify_uri
+
+
+def _episode_spotify_uri(self):
+    return _librespot_episode_uri(self).replace("Spotify:", "spotify:", 1)
+
+
+EpisodeId.to_spotify_uri = _episode_spotify_uri
+
 
 def _download_http_with_resume(item: QueueItem, url, temp_path, headers=None):
     """Stream a URL into *temp_path*, continuing a partial file when possible."""
