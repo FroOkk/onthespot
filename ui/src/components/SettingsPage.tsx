@@ -391,7 +391,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {[
                   { key: "podcast_path_formatter", label: "Podcast Path Formatter", type: "text", description: "Target folder for podcasts" },
-                  { key: "podcast_file_format", label: "Podcast File Format", type: "text", description: "Target container for voice episodes." },
+                  { key: "podcast_file_format", label: "Podcast File Format", type: "text", description: "Target container for voice episodes. Ignored when Use source format is on." },
                 ].map(renderInput)}
               </div>
 
