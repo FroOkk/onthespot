@@ -643,8 +643,12 @@ class DownloadWorker:
         target_bitrate = item.download_profile.bitrate
 
         if item_type == "track":
-            if target_format == temp_file_format.strip("."):
-                if target_bitrate == temp_file_bitrate.strip("k"):
+            if not target_format:
+                # use_source_format / raw_media_download: keep the downloaded container and copy the audio.
+                final_path = final_file_path + temp_file_format
+                force_bitrate = False
+            elif target_format == temp_file_format.strip("."):
+                if str(target_bitrate) == temp_file_bitrate.strip("k"):
                     force_bitrate = False
                 else:
                     force_bitrate = True
