@@ -24,7 +24,7 @@ from .api.deezer import (
     get_song_info_from_deezer_website,
 )
 from .api.qobuz import qobuz_get_file_url
-from .api.spotify import reinit_spotify_session
+from .api.spotify import reinit_spotify_session, spotify_session_is_dead
 from .api.tidal import tidal_get_mpd_data
 from .basemodels import QueueItem
 from .constants import ItemStatus
@@ -100,6 +100,11 @@ def download_spotify(item: QueueItem, item_id, item_type, token, temp_path):
         reinit_spotify_session(token)
         raise RuntimeError(f"Spotify session connection lost: {exc}") from exc
     except queue.Empty as exc:
+        reinit_spotify_session(token)
+        raise RuntimeError(f"Spotify session connection lost: {exc}") from exc
+    except OSError as exc:
+        if not spotify_session_is_dead(token):
+            raise
         reinit_spotify_session(token)
         raise RuntimeError(f"Spotify session connection lost: {exc}") from exc
 
