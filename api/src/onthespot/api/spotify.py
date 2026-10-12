@@ -689,17 +689,26 @@ def reinit_spotify_session(token):
             return
 
 
+def spotify_session_is_dead(session):
+    """True when librespot is left holding a closed socket, which happens when its own reconnect fails."""
+    try:
+        return session.connection._ConnectionHolder__socket.fileno() == -1
+    except AttributeError:
+        return False
+
+
 def spotify_get_token(parsing_index):
     try:
         token = account_pool[parsing_index]["login"]["session"]
     except (OSError, AttributeError, KeyError):
         token = None
-    if not token or isinstance(token, str):
+    if not token or isinstance(token, str) or spotify_session_is_dead(token):
         logger.info(
             "No valid session for %s, attempting to reinit session.",
             account_pool[parsing_index]["username"],
         )
-        spotify_re_init_session(account_pool[parsing_index])
+        # Name the dead session, or re-init takes it for one another worker just rebuilt.
+        spotify_re_init_session(account_pool[parsing_index], dead_session=token or None)
         token = account_pool[parsing_index]["login"]["session"]
     return token
 
