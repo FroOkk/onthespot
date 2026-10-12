@@ -657,9 +657,13 @@ class DownloadWorker:
             else:
                 final_path = final_file_path + "." + target_format
                 force_bitrate = True
+        elif config.get("use_source_format") or config.get("raw_media_download"):
+            # Episodes too: keep the downloaded container and copy the audio.
+            final_path = final_file_path + temp_file_format
+            force_bitrate = False
         else:
             final_path = final_file_path + "." + config.get("podcast_file_format")
-            # Spotify episodes are Vorbis saved as ".mp3"; a stream copy into an MP3 file fails.
+            # Always re-encode to the podcast format at the profile bitrate.
             force_bitrate = True
 
         if config.get("raw_media_download"):

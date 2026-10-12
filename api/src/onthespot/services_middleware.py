@@ -71,6 +71,20 @@ def _download_http_with_resume(item: QueueItem, url, temp_path, headers=None):
     return downloaded
 
 
+def _sniff_audio_extension(path, fallback):
+    """Return the container of the audio file at *path* from its first bytes, or *fallback*."""
+    with open(path, "rb") as audio_file:
+        head = audio_file.read(12)
+    if head.startswith(b"OggS"):
+        return ".ogg"
+    # ID3 tag, or an MPEG audio frame sync with layer III
+    if head.startswith(b"ID3") or (len(head) >= 2 and head[0] == 0xFF and (head[1] & 0xE6) == 0xE2):
+        return ".mp3"
+    if head[4:8] == b"ftyp":
+        return ".m4a"
+    return fallback
+
+
 def download_spotify(item: QueueItem, item_id, item_type, token, temp_path):
     # VorbisOnlyAudioQuality below: the stream is always Ogg Vorbis.
     default_format = ".ogg"
@@ -133,6 +147,13 @@ def download_spotify(item: QueueItem, item_id, item_type, token, temp_path):
 
     stream.input_stream.stream().close()
     del stream.input_stream
+
+    if item_type != "track":
+        # Spotify-hosted episodes are Ogg Vorbis; externally hosted ones are whatever the publisher serves.
+        actual_format = _sniff_audio_extension(temp_path, default_format)
+        if actual_format != default_format:
+            os.replace(temp_path, temp_path[: -len(default_format)] + actual_format)
+            default_format = actual_format
 
     return default_format, bitrate
 
