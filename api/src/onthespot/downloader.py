@@ -655,6 +655,8 @@ class DownloadWorker:
                 force_bitrate = True
         else:
             final_path = final_file_path + "." + config.get("podcast_file_format")
+            # Spotify episodes are Vorbis saved as ".mp3"; a stream copy into an MP3 file fails.
+            force_bitrate = True
 
         if config.get("raw_media_download"):
             os.rename(temp_file_path, final_path)
