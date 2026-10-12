@@ -80,6 +80,9 @@ def download_spotify(item: QueueItem, item_id, item_type, token, temp_path):
     else:
         audio_key = EpisodeId.from_base62(item_id)
 
+    # Podcast episodes never get a download_format, so they match neither branch below.
+    quality = AudioQuality.HIGH
+    bitrate = "160k"
     if item.download_format != "":
         quality = AudioQuality.HIGH
         bitrate = "160k"
