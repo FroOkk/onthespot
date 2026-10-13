@@ -1,6 +1,7 @@
 import json as _json
 import os
 import queue
+import threading
 
 import requests
 from librespot.audio.decoders import AudioQuality, VorbisOnlyAudioQuality
@@ -83,6 +84,48 @@ def _download_http_with_resume(item: QueueItem, url, temp_path, headers=None):
     return downloaded
 
 
+# librespot's HTTP client has no timeouts, its CDN thread pool swallows chunk errors, and a reader waits for a
+# chunk without a time limit, so one failed or stalled chunk request used to hang the download worker forever.
+SPOTIFY_HTTP_TIMEOUT = (10, 30)  # seconds: connect, read
+SPOTIFY_CHUNK_WAIT = 45  # seconds to wait for a chunk before requesting it again
+SPOTIFY_CHUNK_RETRIES = 3
+
+
+def _bound_spotify_http(session):
+    """Give every request made through the librespot session's HTTP client a timeout."""
+    client = getattr(session, "client", None)
+    client = client() if callable(client) else None
+    send = getattr(client, "send", None)
+    if send is None or getattr(client, "_ots_timeouts", False):
+        return
+
+    def send_with_timeout(request, **kwargs):
+        if kwargs.get("timeout") is None:
+            kwargs["timeout"] = SPOTIFY_HTTP_TIMEOUT
+        return send(request, **kwargs)
+
+    client.send = send_with_timeout
+    client._ots_timeouts = True
+
+
+class _ChunkWait(threading.Condition):
+    """Wait condition for one librespot stream: request a missing chunk again, then give up."""
+
+    def __init__(self, stream):
+        super().__init__()
+        self._stream = stream
+
+    def wait_for(self, predicate, timeout=None):
+        for attempt in range(SPOTIFY_CHUNK_RETRIES + 1):
+            if super().wait_for(predicate, timeout=SPOTIFY_CHUNK_WAIT):
+                return True
+            chunk = self._stream.wait_for_chunk
+            if attempt < SPOTIFY_CHUNK_RETRIES and chunk >= 0:
+                logger.warning("Chunk %s did not arrive within %ss, requesting it again", chunk, SPOTIFY_CHUNK_WAIT)
+                self._stream.request_chunk_from_stream(chunk)
+        raise TimeoutError(f"Spotify stream stalled: chunk {self._stream.wait_for_chunk} never arrived")
+
+
 def _sniff_audio_extension(path, fallback):
     """Return the container of the audio file at *path* from its first bytes, or *fallback*."""
     with open(path, "rb") as audio_file:
@@ -118,6 +161,7 @@ def download_spotify(item: QueueItem, item_id, item_type, token, temp_path):
             quality = AudioQuality.VERY_HIGH
             bitrate = "320k"
 
+    _bound_spotify_http(token)
     try:
         stream = token.content_feeder().load(audio_key, VorbisOnlyAudioQuality(quality), False, None)
     except RuntimeError as exc:
@@ -134,6 +178,8 @@ def download_spotify(item: QueueItem, item_id, item_type, token, temp_path):
         reinit_spotify_session(token)
         raise RuntimeError(f"Spotify session connection lost: {exc}") from exc
 
+    source = stream.input_stream.stream()
+    source.wait_lock = _ChunkWait(source)
     total_size = stream.input_stream.size
     downloaded = 0
 
