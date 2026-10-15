@@ -648,7 +648,7 @@ class DownloadWorker:
                 final_path = final_file_path + temp_file_format
                 force_bitrate = False
             elif target_format == temp_file_format.strip("."):
-                if target_bitrate == temp_file_bitrate.strip("k"):
+                if str(target_bitrate) == temp_file_bitrate.strip("k"):
                     force_bitrate = False
                 else:
                     force_bitrate = True
