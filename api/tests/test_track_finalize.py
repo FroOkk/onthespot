@@ -82,6 +82,18 @@ class TrackFinalizeTests(unittest.TestCase):
         self.assertFalse(os.path.exists(temp_path))
         self.convert_audio_format.assert_not_called()
 
+    def test_audio_matching_the_profile_is_copied(self):
+        temp_path, final_path = self._finalize("deezer", "mp3", ".mp3", temp_bitrate="320k")
+
+        self.assertEqual(final_path, self.final_base + ".mp3")
+        self.convert_audio_format.assert_called_once_with(temp_path, final_path, 320, ".mp3", False)
+
+    def test_audio_with_another_bitrate_is_reencoded(self):
+        temp_path, final_path = self._finalize("deezer", "mp3", ".mp3", temp_bitrate="128k")
+
+        self.assertEqual(final_path, self.final_base + ".mp3")
+        self.convert_audio_format.assert_called_once_with(temp_path, final_path, 320, ".mp3", True)
+
 
 if __name__ == "__main__":
     unittest.main()
