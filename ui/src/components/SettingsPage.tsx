@@ -452,7 +452,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
             <div className="space-y-2">
               {[
                 { key: "use_source_format", label: "Use source format", type: "switch", description: "Use the same format of the download file for saved files (override profiles!)" },
-                { key: "prefer_best_source_format", label: "Raw Media Download", type: "switch", description: "Always prefer the best source format for download" },
+                { key: "prefer_best_source_format", label: "Prefer Best Source Format", type: "switch", description: "Always prefer the best source format for download" },
                 { key: "raw_media_download", label: "Raw Media Download", type: "switch", description: "Write directly streamed chunks to disk without decoding. (override profiles!)" },
                 { key: "save_album_cover", label: "Save Separate Album Artwork Image", type: "switch", description: "Save folder.jpg or cover.jpg alongside audio tracks." },
                 { key: "download_lyrics", label: "Download Lyrics", type: "switch", description: "Retrieve track lyrics from catalog providers." },
