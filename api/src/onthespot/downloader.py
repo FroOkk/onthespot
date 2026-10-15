@@ -438,6 +438,25 @@ class DownloadWorker:
         logger.debug("resolved paths, temp: %s | final: %s ", temp_file_path, file_path)
         return temp_file_path, file_path
 
+    @staticmethod
+    def _detect_audio_extension(file_path, fallback):
+        """Return the audio container of *file_path* from its first bytes, or *fallback*.
+
+        Spotify-hosted podcast episodes are Ogg Vorbis, while externally hosted
+        episodes are whatever the publisher serves (usually MP3, sometimes MP4).
+        """
+        with open(file_path, "rb") as audio_file:
+            head = audio_file.read(12)
+        if head.startswith(b"OggS"):
+            return ".ogg"
+        # Frame sync and layer III bits of an MPEG audio frame without an ID3 tag
+        mpeg_frame = len(head) >= 2 and head[0] == 0xFF and (head[1] & 0xE6) == 0xE2
+        if head.startswith(b"ID3") or mpeg_frame:
+            return ".mp3"
+        if head[4:8] == b"ftyp":
+            return ".m4a"
+        return fallback
+
     # ------------------------------------------------------------------
     # Existing-file check
     # ------------------------------------------------------------------
@@ -653,6 +672,10 @@ class DownloadWorker:
             else:
                 final_path = final_file_path + "." + target_format
                 force_bitrate = True
+        elif config.get("raw_media_download"):
+            # Raw episodes are saved unconverted, so name them after their actual container.
+            final_path = final_file_path + self._detect_audio_extension(temp_file_path, temp_file_format)
+            force_bitrate = False
         else:
             final_path = final_file_path + "." + config.get("podcast_file_format")
             # Episodes are always converted to the podcast file format.

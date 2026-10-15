@@ -72,6 +72,40 @@ class PodcastFinalizeTests(unittest.TestCase):
         self.assertEqual(final_path, self.final_base + ".mp3")
         self.convert_audio_format.assert_called_once_with(temp_path, final_path, 320, ".ogg", True)
 
+    def test_raw_episode_is_named_after_its_container(self):
+        config.set("raw_media_download", True)
+        headers = {
+            ".ogg": b"OggS",
+            ".mp3": b"ID3\x04\x00",
+            ".m4a": b"\x00\x00\x00\x20ftypM4A ",
+        }
+        for extension, header in headers.items():
+            with self.subTest(extension=extension):
+                temp_path = self._downloaded_file(header)
+
+                _, final_path = self._finalize(temp_path)
+
+                self.assertEqual(final_path, self.final_base + extension)
+                self.assertTrue(os.path.isfile(final_path))
+                self.assertFalse(os.path.exists(temp_path))
+        self.convert_audio_format.assert_not_called()
+
+    def test_raw_episode_recognises_mp3_without_an_id3_tag(self):
+        config.set("raw_media_download", True)
+        temp_path = self._downloaded_file(b"\xff\xfb\x90\x64")
+
+        _, final_path = self._finalize(temp_path)
+
+        self.assertEqual(final_path, self.final_base + ".mp3")
+
+    def test_raw_episode_of_unknown_container_keeps_the_download_extension(self):
+        config.set("raw_media_download", True)
+        temp_path = self._downloaded_file(b"\x00" * 12)
+
+        _, final_path = self._finalize(temp_path, temp_format=".ogg")
+
+        self.assertEqual(final_path, self.final_base + ".ogg")
+
 
 if __name__ == "__main__":
     unittest.main()
