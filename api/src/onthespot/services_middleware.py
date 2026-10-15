@@ -72,7 +72,9 @@ def _download_http_with_resume(item: QueueItem, url, temp_path, headers=None):
 
 
 def download_spotify(item: QueueItem, item_id, item_type, token, temp_path):
-    default_format = ".mp3"
+    # Tracks are always Ogg Vorbis (VorbisOnlyAudioQuality below). Episodes can be
+    # hosted outside Spotify and are then streamed as published, usually as MP3.
+    default_format = ".ogg" if item_type == "track" else ".mp3"
     temp_path += default_format
 
     if item_type == "track":
