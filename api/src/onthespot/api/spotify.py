@@ -15,6 +15,7 @@ import librespot.zeroconf as librespot_zeroconf
 import requests
 from librespot.core import Session, TokenProvider
 from librespot.mercury import MercuryRequests
+from librespot.metadata import EpisodeId
 from librespot.proto import Playlist4External_pb2
 from librespot.zeroconf import ZeroconfServer
 
@@ -193,11 +194,39 @@ def _patch_librespot_token_provider() -> bool:
     return True
 
 
+def _patch_librespot_episode_uri() -> bool:
+    """Make the bundled librespot request episode metadata with lowercase URIs.
+
+    librespot-python formats episode URIs as ``Spotify:episode:<id>``.  Episode
+    metadata comes from Spotify's extended-metadata endpoint, which is keyed by
+    that URI and answers 404 for the capitalised form, so every podcast episode
+    download fails with "Extended Metadata request failed: Status code 404".
+    Track URIs are already lowercase.  Only patch while the capitalised form is
+    present so a fixed librespot release takes precedence automatically.
+    """
+    if getattr(EpisodeId.to_spotify_uri, "_onthespot_uri_patch", False):
+        return True
+    if not EpisodeId.from_hex("00" * 16).to_spotify_uri().startswith("Spotify:"):
+        return False
+
+    original_to_spotify_uri = EpisodeId.to_spotify_uri
+
+    def patched_to_spotify_uri(self) -> str:
+        return original_to_spotify_uri(self).replace("Spotify:", "spotify:", 1)
+
+    patched_to_spotify_uri._onthespot_uri_patch = True
+    EpisodeId.to_spotify_uri = patched_to_spotify_uri
+    logger.info("Applied Spotify episode URI compatibility patch")
+    return True
+
+
 # Every OnTheSpot session (account logins, re-inits, Spotify Connect pairing)
 # is built through this module, so patching on import covers them all.
 _patch_librespot_session_attributes()
 # Without this, one account's login5 token can serve another account's session.
 _patch_librespot_token_provider()
+# Without this, every Spotify podcast episode fails with a 404 on its metadata.
+_patch_librespot_episode_uri()
 
 
 def _spotify_connect_port() -> int:
