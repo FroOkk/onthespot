@@ -655,6 +655,8 @@ class DownloadWorker:
                 force_bitrate = True
         else:
             final_path = final_file_path + "." + config.get("podcast_file_format")
+            # Episodes are always converted to the podcast file format.
+            force_bitrate = True
 
         if config.get("raw_media_download"):
             os.rename(temp_file_path, final_path)
