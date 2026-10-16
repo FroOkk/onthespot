@@ -161,10 +161,19 @@ export async function addToQueue(
   item: string
 ): Promise<any> {
 
-  const res = await request(`/query/url?q=${item}`, {
+  const res = await request(`/query/url?q=${encodeURIComponent(item)}`, {
     method: "POST"
   });
-  if (!res.ok) throw new Error("Failed to add to queue");
+  if (!res.ok) {
+    let detail = "Failed to add to queue";
+    try {
+      const body = await res.json();
+      if (typeof body?.detail === "string") detail = body.detail;
+    } catch {
+      // body was not JSON; keep the generic message
+    }
+    throw new Error(detail);
+  }
   return res.body
 }
 
