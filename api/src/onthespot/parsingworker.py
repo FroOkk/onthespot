@@ -1,6 +1,7 @@
 # ---------------------------------------------------------------------------
 # Parsing worker
 # ---------------------------------------------------------------------------
+import queue
 import threading
 import time
 
@@ -15,18 +16,18 @@ from .api.registry import (
     SERVICE_PLAYLIST_DATA_FUNCTIONS,
     SERVICE_PODCAST_EPISODE_ID_FUNCTIONS,
 )
-from .api.spotify import (
-    spotify_get_liked_songs,
-    spotify_get_playlist_data,
-    spotify_get_playlist_items,
-    spotify_get_your_episodes,
-)
+from .api.spotify import reinit_spotify_session, spotify_get_playlist
 from .basemodels import DownloadProfile, QueueItem
 from .constants import ItemStatus
 from .runtimedata import config, download_queue, download_queue_lock, get_logger, parsing, pending
 from .utils import format_local_id
 
 logger = get_logger("ParsingWorker")
+
+# Errors that mean the librespot session died. RuntimeError and queue.Empty
+# match services_middleware; OSError also covers ConnectionError and requests'
+# connection errors.
+_DEAD_SESSION_ERRORS = (OSError, RuntimeError, queue.Empty)
 
 
 class ParsingWorker:
@@ -91,17 +92,10 @@ class ParsingWorker:
     def _dispatch(self, service, item_type, item_id, item_url, token):
         """Route the parsed item to the correct expansion handler."""
 
-        # --- Spotify special collections ---
-        if service == "spotify":
-            if item_type == "playlist":
-                self._expand_spotify_playlist(token, item_id)  # URL Passed down
-                return
-            if item_type == "liked_songs":
-                self._expand_spotify_liked_songs(token, item_url)  # URL Passed down
-                return
-            if item_type == "your_episodes":
-                self._expand_spotify_your_episodes(token, item_url)  # URL Passed down
-                return
+        # --- Spotify playlist (read through librespot, not the Web API) ---
+        if service == "spotify" and item_type == "playlist":
+            self._expand_spotify_playlist(token, item_id, item_url)
+            return
 
         # --- YouTube Music artist (channel) ---
         if service == "youtube_music" and item_type == "artist":
@@ -166,95 +160,42 @@ class ParsingWorker:
         )
         pending.put_nowait(item)
 
-    def _enqueue_playlist_item(self, item):
-        """Expose the whole playlist in the UI before downloading starts."""
-        pending.put_nowait(item)
-
-    def _expand_spotify_playlist(self, token, playlist_id):
+    def _expand_spotify_playlist(self, token, playlist_id, item_url):
         try:
-            items = spotify_get_playlist_items(token, playlist_id)
-            playlist_name, playlist_by = spotify_get_playlist_data(token, playlist_id)
+            try:
+                playlist_name, playlist_by, entries = spotify_get_playlist(token, playlist_id)
+            except _DEAD_SESSION_ERRORS:
+                reinit_spotify_session(token)
+                playlist_name, playlist_by, entries = spotify_get_playlist(get_account_token("spotify"), playlist_id)
         except Exception as exc:
-            error_str = str(exc)
-            if "404" in error_str or "not found" in error_str.lower():
-                msg = (
-                    f"Playlist not found: The Spotify playlist was not found, "
-                    f"was created by Spotify (unavailable in the Web API) or is private.\n\n"
-                    f"Playlist ID: {playlist_id}\n\n"
-                    f"Please verify:\n"
-                    f"• The playlist URL is correct\n"  # Now has access to item_url context
-                    f"• The playlist was NOT created by Spotify\n"
-                    f"• The playlist is public or you have access\n"
-                    f"• You're logged into the correct Spotify account"
-                )
-            else:
-                msg = f"Failed to load Spotify playlist: {error_str}\n\nPlaylist ID: {playlist_id}"
-            logger.error(msg)
-            logger.error("Playlist fetch failed: %s", exc)
+            self._emit_collection_error(exc, "spotify", "playlist", playlist_id, item_url)
             return
 
-        for index, item in enumerate(items):
-            try:
-                track_id = item["item"]["id"]
-                track_type = item["item"]["type"]
-                local_id = format_local_id(track_id)
-                item = QueueItem(
-                    local_id=local_id,
+        if not entries:
+            logger.warning(
+                "Spotify playlist %s has no tracks or episodes to download (local files are skipped).",
+                playlist_id,
+            )
+            return
+
+        profile = self._get_active_profile()
+        for position, item_type, item_id in entries:
+            kind = "episode" if item_type == "podcast_episode" else "track"
+            pending.put_nowait(
+                QueueItem(
+                    local_id=format_local_id(item_id),
                     item_service="spotify",
-                    item_type=track_type,
-                    item_id=track_id,
-                    item_url=item["item"]["href"],
+                    item_type=item_type,
+                    item_id=item_id,
+                    item_url=f"https://open.spotify.com/{kind}/{item_id}",
                     parent_category="playlist",
-                    playlist_by=playlist_by,
-                    playlist_number=str(index + 1),
                     playlist_name=playlist_name,
+                    playlist_by=playlist_by,
+                    playlist_number=str(position),
                     item_status=ItemStatus.WAITING,
-                    download_profile=self._get_active_profile(),
+                    download_profile=profile,
                 )
-                pending.put_nowait(item)
-
-            except TypeError:
-                logger.error("TypeError for %s", item)
-
-    def _expand_spotify_liked_songs(self, token, item_url):  # Added item_url
-        for index, track in enumerate(spotify_get_liked_songs(token)):
-            track_id = track["track"]["id"]
-            local_id = format_local_id(track_id)
-            item = QueueItem(
-                local_id=local_id,
-                item_service="spotify",
-                item_type="track",
-                item_id=track_id,
-                item_url=track["item"]["href"],
-                parent_category="playlist",
-                playlist_by="me",
-                playlist_number=str(index + 1),
-                playlist_name="Liked Songs",
-                item_status=ItemStatus.WAITING,
-                download_profile=self._get_active_profile(),
             )
-            pending.put_nowait(item)
-
-    def _expand_spotify_your_episodes(self, token, item_url):  # Added item_url
-        for index, track in enumerate(spotify_get_your_episodes(token)):
-            episode_id = track["episode"]["id"]
-            if not episode_id:
-                raise NotImplementedError
-            local_id = format_local_id(episode_id)
-            item = QueueItem(
-                local_id=local_id,
-                item_service="spotify",
-                item_type="podcast_episode",
-                item_id=episode_id,
-                item_url=track["item"]["href"],
-                parent_category="playlist",
-                playlist_by="me",
-                playlist_number=str(index + 1),
-                playlist_name="Your Episodes",
-                item_status=ItemStatus.WAITING,
-                download_profile=self._get_active_profile(),
-            )
-            pending.put_nowait(item)
 
     def _expand_youtube_music_channel(
         self, token, item_id, service, item_url
