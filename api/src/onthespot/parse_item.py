@@ -17,6 +17,7 @@ import requests
 from .accounts import get_account_token
 from .api.generic import generic_get_track_metadata
 from .api.soundcloud import soundcloud_parse_url
+from .resources.exceptions import UnsupportedItemError
 from .resources.regexes import (
     APPLE_MUSIC_URL_REGEX,
     BANDCAMP_URL_REGEX,
@@ -140,12 +141,17 @@ class UrlMatcher:
         item_type, item_id = soundcloud_parse_url(url, token)
         return ("soundcloud", item_type, item_id)
 
-    def _try_spotify_static(self, url) -> tuple | None:
+    def _try_spotify_static(self, url) -> None:
         if url == _SPOTIFY_LIKED_SONGS_URL:
-            return ("spotify", "liked_songs", None)
+            raise UnsupportedItemError(
+                "Spotify Liked Songs is not supported: Spotify no longer serves it to third-party apps. "
+                "Paste album, artist, playlist, track or episode links instead."
+            )
         if url == _SPOTIFY_YOUR_EPISODES_URL:
-            return ("spotify", "your_episodes", None)
-        return None
+            raise UnsupportedItemError(
+                "Spotify Your Episodes is not supported: Spotify no longer serves it to third-party apps. "
+                "Paste album, artist, playlist, track or episode links instead."
+            )
 
     def _try_spotify(self, url) -> tuple | None:
         match = SPOTIFY_URL_REGEX.search(url)
@@ -242,6 +248,10 @@ def parse_url(url: str) -> bool:
     Returns ``True`` if the URL was recognised and enqueued (or immediately
     handled), ``False`` if it was not recognised and there is no generic
     fallback available.
+
+    Raises :class:`UnsupportedItemError` for URLs OnTheSpot recognises but
+    cannot download (Spotify Liked Songs and Your Episodes); nothing is
+    enqueued and the message says why.
     """
     resolved = _url_matcher.match(url)
 

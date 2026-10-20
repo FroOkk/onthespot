@@ -13,12 +13,18 @@ from _support import TEST_ROOT  # noqa: F401
 # librespot ships protobuf files built for the pure-Python runtime.
 os.environ.setdefault("PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION", "python")
 
+from fastapi.testclient import TestClient
 from librespot.proto import Playlist4External_pb2
 
 from onthespot.api.spotify import spotify_get_playlist
+from onthespot.main import app
+from onthespot.parse_item import parse_url
 from onthespot.parsingworker import ParsingWorker
-from onthespot.resources.exceptions import SpotifyPlaylistUnavailableError
-from onthespot.runtimedata import pending
+from onthespot.resources.exceptions import (
+    SpotifyPlaylistUnavailableError,
+    UnsupportedItemError,
+)
+from onthespot.runtimedata import parsing, pending
 
 PLAYLIST_ID = "37i9dQZF1DXcBWIGoYBM5M"
 PLAYLIST_URL = f"https://open.spotify.com/playlist/{PLAYLIST_ID}"
@@ -209,3 +215,46 @@ class ExpandSpotifyPlaylistTests(unittest.TestCase):
             error, "spotify", "playlist", PLAYLIST_ID, PLAYLIST_URL
         )
         self.assertEqual(self._pending(), [])
+
+
+class UnsupportedSpotifyCollectionTests(unittest.TestCase):
+    def setUp(self):
+        parsing.replace_items([])
+        self.addCleanup(parsing.replace_items, [])
+
+    def test_liked_songs_and_your_episodes_are_refused(self):
+        for url in (LIKED_SONGS_URL, YOUR_EPISODES_URL):
+            with self.subTest(url=url):
+                with self.assertRaises(UnsupportedItemError) as ctx:
+                    parse_url(url)
+                self.assertIn("not supported", str(ctx.exception))
+                self.assertEqual(parsing.get_items(), [])
+
+    def test_playlist_url_is_enqueued_for_parsing(self):
+        self.assertTrue(parse_url(PLAYLIST_URL))
+
+        self.assertEqual(
+            parsing.get_items(),
+            [
+                {
+                    "item_url": PLAYLIST_URL,
+                    "item_service": "spotify",
+                    "item_type": "playlist",
+                    "item_id": PLAYLIST_ID,
+                }
+            ],
+        )
+
+    def test_query_url_returns_400_with_reason(self):
+        # No context manager: these route tests need no background workers.
+        client = TestClient(app)
+        with patch("onthespot.parse_item.account_pool", [{"service": "spotify"}]):
+            response = client.post("/query/url", params={"q": LIKED_SONGS_URL})
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("Spotify Liked Songs is not supported", response.json()["detail"])
+        self.assertEqual(parsing.get_items(), [])
+
+
+if __name__ == "__main__":
+    unittest.main()

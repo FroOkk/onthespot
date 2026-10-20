@@ -10,3 +10,7 @@ class SpotifyPlaylistUnavailableError(Exception):
 
 class SpotifyAPIUnavailableError(Exception):
     """Raised when Spotify API is unavailable (connection issue)."""
+
+
+class UnsupportedItemError(Exception):
+    """Raised when a recognised URL points to something OnTheSpot cannot download."""
