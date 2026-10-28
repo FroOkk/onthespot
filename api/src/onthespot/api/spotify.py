@@ -14,6 +14,7 @@ import uuid
 import librespot.zeroconf as librespot_zeroconf
 import requests
 from librespot.core import Session
+from librespot.proto import Playlist4External_pb2
 from librespot.zeroconf import ZeroconfServer
 
 from ..otsconfig import cache_dir, config
@@ -323,7 +324,7 @@ def spotify_get_oauth_token():
     The default librespot token rides on Spotify's shared first-party client id,
     which is now hard rate-limited (HTTP 429). Supplying your own client id/secret
     gives Web API calls their own quota. Catalog endpoints only - this token has
-    no user context, so it can't read /me/* (liked songs, your episodes)."""
+    no user context, so it can't read /me/*."""
     # str() guards against the CLI / web settings coercing an all-digit value to int.
     client_id = str(config.get("spotify_webapi_override_client_id", "")).strip()
     client_secret = str(config.get("spotify_webapi_override_client_secret", "")).strip()
@@ -382,25 +383,6 @@ def spotify_get_auth_header(token=None):
     if token is not None:
         return {"Authorization": f"Bearer {token.tokens().get('user-read-email')}"}
     return None
-
-
-def spotify_playlist_call(token, url):
-    """Fetch a playlist endpoint, preferring the OAuth override. Client-credentials
-    OAuth can't see private/collaborative playlists (HTTP 404 -> None), so on a
-    permanent failure retry once with the user-scoped librespot token."""
-    headers = spotify_get_auth_header(token)
-    try:
-        resp = make_call(url, headers=headers, skip_cache=True)
-    except requests.exceptions.RequestException:
-        resp = None
-    if not resp and token is not None:
-        librespot_headers = {"Authorization": f"Bearer {token.tokens().get('user-read-email')}"}
-        if librespot_headers != headers:
-            try:
-                resp = make_call(url, headers=librespot_headers, skip_cache=True)
-            except requests.exceptions.RequestException:
-                resp = None
-    return resp
 
 
 class MirrorSpotifyPlayback:
@@ -486,7 +468,7 @@ class MirrorSpotifyPlayback:
                                 else:
                                     continue
                                 token = get_account_token("spotify")
-                                playlist_name, playlist_by = spotify_get_playlist_data(token, playlist_id)
+                                playlist_name, playlist_by, _ = spotify_get_playlist(token, playlist_id)
                                 parent_category = "playlist"
                             elif data["context"].get("type") == "collection":
                                 playlist_name = "Liked Songs"
@@ -745,12 +727,61 @@ def spotify_get_artist_album_ids(token, artist_id):
     return item_ids
 
 
-def spotify_get_playlist_data(token, playlist_id):
-    logger.info("Get playlist data for playlist: %s", playlist_id)
-    resp = spotify_playlist_call(token, f"{BASE_URL}/playlists/{playlist_id}")
-    if not resp:
-        raise SpotifyPlaylistUnavailableError(f"Failed to fetch playlist data for '{playlist_id}'")
-    return resp["name"], resp["owner"]["display_name"]
+_PLAYLIST_PAGE = 1000
+# Playlist entry URI kind -> OnTheSpot item type. Anything else (local files,
+# unknown kinds) cannot be downloaded and is skipped.
+_PLAYLIST_ENTRY_TYPES = {"track": "track", "episode": "podcast_episode"}
+
+
+def spotify_get_playlist(token, playlist_id):
+    """Load a playlist through librespot's playlist service on spclient.
+
+    The Web API no longer returns playlist contents to third-party apps, so
+    this reads the Playlist4External protobuf the Spotify clients use, with the
+    signed-in session's own token. Returns ``(name, owner, entries)``, where
+    each entry is ``(position, item_type, item_id)`` and ``position`` is the
+    1-based slot in the Spotify playlist. Local files are skipped, so
+    positions can have gaps. ``owner`` is the Spotify username: the Web API's
+    /users lookup answers 403 to development-mode apps. A playlist with no
+    name falls back to its id, so the download folder is never blank.
+    """
+    logger.info("Getting playlist: %s", playlist_id)
+    name = ""
+    owner_username = ""
+    entries = []
+    skipped = 0
+    start = 0
+    while True:
+        resp = token.api().send(
+            "GET",
+            f"/playlist/v2/playlist/{playlist_id}?from={start}&length={_PLAYLIST_PAGE}",
+            None,
+            None,
+        )
+        if resp.status_code != 200:
+            raise SpotifyPlaylistUnavailableError(f"HTTP {resp.status_code} loading playlist {playlist_id}")
+        page = Playlist4External_pb2.SelectedListContent()
+        page.ParseFromString(resp.content)
+        if start == 0:
+            name = page.attributes.name
+            owner_username = page.owner_username
+
+        items = page.contents.items
+        for offset, item in enumerate(items):
+            parts = item.uri.split(":")
+            item_type = _PLAYLIST_ENTRY_TYPES.get(parts[1]) if len(parts) == 3 and parts[0] == "spotify" else None
+            if item_type is None:
+                skipped += 1
+                continue
+            entries.append((page.contents.pos + offset + 1, item_type, parts[2]))
+
+        if not page.contents.truncated or not items:
+            break
+        start = page.contents.pos + len(items)
+
+    if skipped:
+        logger.info("Skipped %d local or unsupported entries in playlist %s", skipped, playlist_id)
+    return name or playlist_id, owner_username, entries
 
 
 def spotify_get_lyrics(token, item_id, item_type, metadata, filepath):
@@ -865,68 +896,6 @@ def spotify_get_lyrics(token, item_id, item_type, metadata, filepath):
                 return True
     else:
         return False
-
-
-def spotify_get_playlist_items(token, playlist_id):
-    logger.info("Getting items in playlist: %s", playlist_id)
-    items = []
-    offset = 0
-    limit = 100
-
-    while True:
-        url = f"{BASE_URL}/playlists/{playlist_id}/items?additional_types=track%2Cepisode&offset={offset}&limit={limit}"
-        resp = spotify_playlist_call(token, url)
-        if not resp:
-            raise Exception(f"Failed to fetch playlist items for '{playlist_id}'")
-
-        offset += limit
-        items.extend(resp["items"])
-
-        if resp["total"] <= offset:
-            break
-    return items
-
-
-def spotify_get_liked_songs(token):
-    logger.info("Getting liked songs")
-    items = []
-    offset = 0
-    limit = 50
-
-    while True:
-        url = f"{BASE_URL}/me/tracks?offset={offset}&limit={limit}"
-        headers = {}
-        headers["Authorization"] = f"Bearer {token.tokens().get('user-library-read')}"
-
-        resp = make_call(url, headers=headers, skip_cache=True)
-
-        offset += limit
-        items.extend(resp["items"])
-
-        if resp["total"] <= offset:
-            break
-    return items
-
-
-def spotify_get_your_episodes(token):
-    logger.info("Getting your episodes")
-    items = []
-    offset = 0
-    limit = 50
-
-    while True:
-        headers = {}
-        headers["Authorization"] = f"Bearer {token.tokens().get('user-library-read')}"
-        url = f"{BASE_URL}/me/episodes?offset={offset}&limit={limit}"
-
-        resp = make_call(url, headers=headers, skip_cache=True)
-
-        offset += limit
-        items.extend(resp["items"])
-
-        if resp["total"] <= offset:
-            break
-    return items
 
 
 def spotify_get_album_track_ids(token, album_id):

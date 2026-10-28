@@ -31,7 +31,7 @@ interface ParsingPendingQueueProps {
   profiles: DownloadProfile[];
   activeProfile: string;
   onChangeActiveProfile: (profileId: string) => Promise<void>;
-  onParseUrl: (url: string, profileId?: string, autoQueue?: boolean) => Promise<void>;
+  onParseUrl: (url: string, profileId?: string, autoQueue?: boolean) => Promise<boolean>;
   onCancelJob: (jobId: string) => Promise<void>;
   onDeleteJob: (jobId: string) => Promise<void>;
   onClearCompletedJobs: () => Promise<void>;
@@ -74,8 +74,8 @@ export const ParsingPendingQueue: React.FC<ParsingPendingQueueProps> = ({
 
     setIsSubmitting(true);
     try {
-      await onParseUrl(inputUrl.trim(), selectedProfileId, autoQueueOnParsed);
-      setInputUrl("");
+      const accepted = await onParseUrl(inputUrl.trim(), selectedProfileId, autoQueueOnParsed);
+      if (accepted) setInputUrl("");
     } finally {
       setIsSubmitting(false);
     }

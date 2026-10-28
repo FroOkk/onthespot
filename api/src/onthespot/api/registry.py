@@ -175,7 +175,6 @@ from .soundcloud import (
 from .spotify import (
     spotify_get_album_track_ids,
     spotify_get_artist_album_ids,
-    spotify_get_playlist_data,
     spotify_get_podcast_episode_ids,
 )
 from .tidal import (
@@ -222,7 +221,6 @@ SERVICE_PLAYLIST_DATA_FUNCTIONS = {
     "deezer": deezer_get_playlist_data,
     "qobuz": qobuz_get_playlist_data,
     "soundcloud": soundcloud_get_playlist_data,
-    "spotify": spotify_get_playlist_data,
     "tidal": tidal_get_playlist_data,
     "youtube_music": youtube_music_get_playlist_data,
 }

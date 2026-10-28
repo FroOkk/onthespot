@@ -175,11 +175,21 @@ export default function App() {
 
   // Parsing & Pending Action Handlers
   const handleParseUrl = async (url: string, profileId?: string, autoQueue?: boolean) => {
-    await addToQueue(url);
+    try {
+      await addToQueue(url);
+    } catch (err) {
+      addNotification({
+        title: `Url: ${url}`,
+        message: err instanceof Error ? err.message : "Could not add URL",
+        status: "error",
+      });
+      return false;
+    }
     addNotification({
       title: `Url: ${url}`,
       message: `Added to Parsing Queue`,
     });
+    return true;
   };
 
   const handleCancelJob = async (jobId: string) => {

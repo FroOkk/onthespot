@@ -67,6 +67,7 @@ from .library import (
 from .otsconfig import config
 from .parse_item import search
 from .parsingworker import ParsingWorker
+from .resources.exceptions import UnsupportedItemError
 from .runtimedata import (
     account_pool,
     adopt_loggers,
@@ -449,10 +450,15 @@ async def query_url(q: str | None = None, filters: dict | None = None):
     :param q: The search url.
     :param filters: Optional dictionary of filters for the search !! Not Implemented Yet.
     :return: True or False depending on the result of the search function.
+    :raises HTTPException: 400 with the reason when the URL is recognised but
+        not supported (Spotify Liked Songs, Your Episodes).
     """
     result = None
     if q:
-        result = search(q)
+        try:
+            result = search(q)
+        except UnsupportedItemError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
     return result
 
 

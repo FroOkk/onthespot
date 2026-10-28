@@ -11,8 +11,9 @@ For installation, persistent folders, Docker, and Unraid setup, see
 
 1. Open OnTheSpot in a browser.
 2. Go to **Accounts** and add at least one service worker.
-3. If you use Spotify catalogue search or Playlist sorting, open
-   **Settings → API config** and save your Spotify Client ID and Client Secret.
+3. If you download from Spotify, open **Settings → API config** and save
+   your Spotify Client ID and Client Secret. OnTheSpot uses them to fetch
+   track and album details.
 4. Choose an output profile in **Download queue** or create one in
    **Settings → Download Profiles**.
 5. Search for media or paste a supported URL in **Search & discover**.
@@ -60,7 +61,16 @@ Spotify needs a Spotify Developer app:
 3. Save the configuration.
 
 These credentials identify the developer app; they do not sign in a Spotify
-worker and do not grant access to a user's private playlists by themselves.
+worker.
+
+OnTheSpot reads playlists through the signed-in Spotify worker, so public
+playlists, playlists made by Spotify and your own private playlists all load.
+It then fetches each track's details with these credentials, so a large
+playlist makes many Web API calls. If Spotify starts to refuse requests,
+turn off metadata options you do not need in **Settings**.
+
+Local files in a playlist are skipped. Liked Songs and Your Episodes are not
+supported: OnTheSpot refuses those links and tells you why.
 
 ### YouTube cookies
 
