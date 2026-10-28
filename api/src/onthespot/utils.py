@@ -592,9 +592,9 @@ def format_item_path(item: QueueItem, item_metadata):
         trackcount=format_path_numbers(item_metadata, "total_tracks"),
         disccount=format_path_numbers(item_metadata, "total_discs"),
         isrc=str(item_metadata.get("isrc")),
-        playlist_name=sanitize_data(item_metadata.get("playlist_name")),
-        playlist_owner=sanitize_data(item_metadata.get("playlist_by")),
-        playlist_number=sanitize_data(item_metadata.get("playlist_number")),
+        playlist_name=sanitize_data(item.playlist_name),
+        playlist_owner=sanitize_data(item.playlist_by),
+        playlist_number=sanitize_data(item.playlist_number),
         # Show
         show_name=sanitize_data(item_metadata.get("show_name")),
         season_number=format_path_numbers(item_metadata, "season_number"),
