@@ -467,7 +467,7 @@ class DownloadWorker:
 
                 if config.get("create_m3u_file") and item.parent_category == "playlist":
                     progress_hook(item, 99, ItemStatus.ADDING_TO_M3U)
-                    add_to_m3u_file(item, item_metadata)
+                    add_to_m3u_file(item.model_dump(), item_metadata)
 
                 item.item_status = ItemStatus.ALREADY_EXISTS
 
